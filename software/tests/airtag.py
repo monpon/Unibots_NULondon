@@ -1,0 +1,141 @@
+import cv2
+import numpy as np
+import os
+
+ROOM_WIDTH = 2000  
+ROOM_HEIGHT = 2000  
+
+print(f"OpenCV version: {cv2.__version__}")
+
+aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+aruco_params = cv2.aruco.DetectorParameters()
+detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
+
+CAMERA_FOV_HORIZONTAL = 117  
+TAG_SIZE_MM = 100  
+
+TAGS_POSITION = {
+    0: {"x": 1000, "y": 0,    "facing": 0},    
+    1: {"x": 2000, "y": 1000, "facing": 270},  
+    2: {"x": 1000, "y": 2000, "facing": 180},  
+    3: {"x": 0,    "y": 1000, "facing": 90}, 
+}
+
+cap = cv2.VideoCapture(2)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+ret, test_frame = cap.read(0)
+if ret:
+    frame_height, frame_width = test_frame.shape[:2]
+    print(f"Camera resolution: {frame_width}x{frame_height}")
+else:
+    frame_width, frame_height = 1280, 720
+
+camera_center_x = frame_width // 2
+camera_center_y = frame_height // 2
+
+focal_length_pixels = (frame_width / 2) / np.tan(np.radians(CAMERA_FOV_HORIZONTAL / 2))
+
+print(f"Camera center: ({camera_center_x}, {camera_center_y})")
+print(f"Focal length: {focal_length_pixels:.2f} pixels")
+print(f"Horizontal FOV: {CAMERA_FOV_HORIZONTAL}°")
+print("Press 'q' to quit\n")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    corners, ids, rejected = detector.detectMarkers(gray)
+    
+    cv2.line(frame, (camera_center_x - 20, camera_center_y), 
+             (camera_center_x + 20, camera_center_y), (255, 255, 255), 1)
+    cv2.line(frame, (camera_center_x, camera_center_y - 20), 
+             (camera_center_x, camera_center_y + 20), (255, 255, 255), 1)
+    
+    if ids is not None and len(ids) > 0:
+        cv2.aruco.drawDetectedMarkers(frame, corners, ids, (0, 255, 0))
+        
+        for i in range(len(ids)):
+            tag_id = ids[i][0]
+            tag = TAGS_POSITION[tag_id]
+            tag_x = tag["x"]
+            tag_y = tag["y"]
+            tag_facing = tag["facing"]
+            
+            marker_corners = corners[i][0]
+            
+            tag_center_x = int(marker_corners[:, 0].mean())
+            tag_center_y = int(marker_corners[:, 1].mean())
+            
+            cv2.circle(frame, (tag_center_x, tag_center_y), 5, (0, 0, 255), -1)
+            
+            pixel_offset_x = tag_center_x - camera_center_x
+            pixel_offset_y = tag_center_y - camera_center_y
+            
+            left_x = (marker_corners[0][0] + marker_corners[3][0]) / 2
+            right_x = (marker_corners[1][0] + marker_corners[2][0]) / 2
+            tag_width_pixels = abs(right_x - left_x)
+            
+            distance_mm = (TAG_SIZE_MM * focal_length_pixels) / tag_width_pixels
+            distance_cm = distance_mm / 10
+            
+            angle_x = np.degrees(np.arctan(pixel_offset_x / focal_length_pixels))
+            angle_y = np.degrees(np.arctan(pixel_offset_y / focal_length_pixels))
+            
+            x_offset_mm = distance_mm * np.tan(np.radians(angle_x))
+            y_offset_mm = distance_mm * np.tan(np.radians(angle_y))
+            
+            y_oposite = np.sqrt(max(0, distance_mm**2 - x_offset_mm**2))
+            
+            robot_heading = (tag_facing + 180 - angle_x) % 360
+            
+            tag_facing_rad = np.radians(tag_facing)
+            robot_x = (tag_x + y_oposite * np.sin(tag_facing_rad) - x_offset_mm * np.cos(tag_facing_rad))
+            robot_y = (tag_y + y_oposite * np.cos(tag_facing_rad) + x_offset_mm * np.sin(tag_facing_rad))
+
+            print(f"Tag ID {tag_id:2d} | "
+                  f"Distance: {distance_cm:6.1f} cm | "
+                  f"X offset: {x_offset_mm:+7.1f} mm | "
+                  f"Y offset: {y_offset_mm:+7.1f} mm | "
+                  f"Angle X: {angle_x:+6.2f}° | "
+                  f"Angle Y: {angle_y:+6.2f}°")
+            
+            bottom_y = int(marker_corners[:, 1].max()) + 20
+            center_x = tag_center_x
+            
+            text1 = f"ID: {tag_id}"
+            cv2.putText(frame, text1, (center_x - 40, bottom_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            text2 = f"Dist: {distance_cm:.1f} cm"
+            cv2.putText(frame, text2, (center_x - 70, bottom_y + 25),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            
+            text3 = f"X: {x_offset_mm:+.1f} mm"
+            cv2.putText(frame, text3, (center_x - 70, bottom_y + 45),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+            
+            text4 = f"Y: {y_offset_mm:+.1f} mm"
+            cv2.putText(frame, text4, (center_x - 70, bottom_y + 65),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+            
+            text5 = f"Angles: {angle_x:+.1f}°, {angle_y:+.1f}°"
+            cv2.putText(frame, text5, (center_x - 90, bottom_y + 85),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+        
+        cv2.putText(frame, f"Tags: {len(ids)}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    else:
+        cv2.putText(frame, "No tags detected", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    
+    cv2.imshow('AprilTag Detection', frame)
+    
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
