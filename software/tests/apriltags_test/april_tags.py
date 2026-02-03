@@ -10,16 +10,24 @@ detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
 CAMERA_FOV_HORIZONTAL = 117  
 TAG_SIZE_MM = 100  
 
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+# Capture at full resolution
+cap = cv2.VideoCapture(1)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 2560)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1440)
 
 ret, test_frame = cap.read()
 if ret:
     frame_height, frame_width = test_frame.shape[:2]
-    print(f"Camera resolution: {frame_width}x{frame_height}")
+    print(f"Capture resolution: {frame_width}x{frame_height}")
 else:
-    frame_width, frame_height = 1280, 720
+    frame_width, frame_height = 2560, 1440
+
+# Display resolution (720p)
+DISPLAY_WIDTH = 1280
+DISPLAY_HEIGHT = 720
+
+# Calculate scale factor
+scale_factor = DISPLAY_WIDTH / frame_width
 
 camera_center_x = frame_width // 2
 camera_center_y = frame_height // 2
@@ -29,6 +37,8 @@ focal_length_pixels = (frame_width / 2) / np.tan(np.radians(CAMERA_FOV_HORIZONTA
 print(f"Camera center: ({camera_center_x}, {camera_center_y})")
 print(f"Focal length: {focal_length_pixels:.2f} pixels")
 print(f"Horizontal FOV: {CAMERA_FOV_HORIZONTAL}°")
+print(f"Display resolution: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}")
+print(f"Scale factor: {scale_factor:.3f}")
 print("Press 'q' to quit\n")
 
 while True:
@@ -108,7 +118,10 @@ while True:
         cv2.putText(frame, "No tags detected", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
     
-    cv2.imshow('AprilTag Detection', frame)
+    # Resize frame for display
+    display_frame = cv2.resize(frame, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    
+    cv2.imshow('AprilTag Detection', display_frame)
     
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
